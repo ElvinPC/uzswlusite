@@ -6,4 +6,4 @@ pycache/
 .DS_Store
 Thumbs.db
 .idea/
-create_pages.py/
+create_pages.py
