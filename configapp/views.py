@@ -105,7 +105,7 @@ class PageDetailAPIView(APIView):
                     return Response({"error": f"Child sahifa topilmadi: {slug}"}, status=status.HTTP_404_NOT_FOUND)
                 page = child
 
-            data['sub'] = page.id  # Yangi child shu parent ostida yaratiladi
+            data['sub'] = page.id
 
         serializer = PageSerializer(data=data)
         if serializer.is_valid():
