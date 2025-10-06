@@ -1,7 +1,5 @@
-from django.db.models import Q
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
-from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.viewsets import ModelViewSet
@@ -18,16 +16,16 @@ class LanguageView(ModelViewSet):
 class PageModelsAPIView(APIView):
 
     @swagger_auto_schema(
-        operation_description="Barcha sahifalar ro'yxatini olish",
+        operation_description="Barcha ota sahifalarni olish",
         responses={200: PageSerializer(many=True)}
     )
     def get(self, request):
-        pages = PageModels.objects.filter(Q(sub__isnull=True) | Q(sub=0)).order_by('position')
+        pages = PageModels.objects.filter(sub__isnull=True).order_by('position')
         serializer = PageSerializer(pages, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
-        operation_description="Yangi sahifa yaratish",
+        operation_description="Yangi sahifa yaratish (ota yoki child)",
         request_body=PageSerializer,
         responses={201: PageSerializer()}
     )
@@ -42,12 +40,13 @@ class PageModelsAPIView(APIView):
 class PageDetailAPIView(APIView):
 
     @swagger_auto_schema(
-        operation_description="Til bo‘yicha barcha sahifalarni olish yoki ma’lum slugli sahifani olish",
         manual_parameters=[
-            openapi.Parameter('lang_code', openapi.IN_PATH, description="Til kodi (masalan: uz, ru, en)",
-                              type=openapi.TYPE_STRING),
-            openapi.Parameter('slug', openapi.IN_PATH, description="Sahifa URL yoki slug qiymati",
-                              type=openapi.TYPE_STRING),
+            openapi.Parameter(
+                'lang_code', openapi.IN_PATH,
+                description="Til kodi (masalan: uz, ru, en)",
+                type=openapi.TYPE_STRING,
+                required=True
+            ),
         ],
         responses={200: PageSerializer()}
     )
@@ -69,22 +68,21 @@ class PageDetailAPIView(APIView):
             return Response({"error": "Ota sahifa topilmadi"}, status=status.HTTP_404_NOT_FOUND)
 
         page = parent
-        if len(segments) > 1:
-            for slug in segments[1:]:
-                child = PageModels.objects.filter(lang=lang_id, url=slug, sub=page.id).first()
-                if not child:
-                    return Response({"error": f"Child sahifa topilmadi: {slug}"}, status=status.HTTP_404_NOT_FOUND)
-                page = child
+        for slug in segments[1:]:
+            child = PageModels.objects.filter(lang=lang_id, url=slug, sub=page.id).first()
+            if not child:
+                return Response({"error": f"Child sahifa topilmadi: {slug}"}, status=status.HTTP_404_NOT_FOUND)
+            page = child
 
         serializer = PageSerializer(page)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
-        operation_description="Yangi sahifa yaratish",
+        operation_description="Sahifa yaratish (ota yoki child)",
         request_body=PageSerializer,
         responses={201: PageSerializer()}
     )
-    def post(self, request, lang_code, slug=None):
+    def post(self, request, lang_code, path=None):
         lang_map = {"uz": 1, "ru": 2, "en": 3}
         lang_id = lang_map.get(lang_code.lower())
         if not lang_id:
@@ -92,6 +90,23 @@ class PageDetailAPIView(APIView):
 
         data = request.data.copy()
         data['lang'] = lang_id
+
+        if path:
+            segments = path.strip('/').split('/')
+            parent_url = segments[0]
+            parent = PageModels.objects.filter(lang=lang_id, url=parent_url, sub__isnull=True).first()
+            if not parent:
+                return Response({"error": "Ota sahifa topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+
+            page = parent
+            for slug in segments[1:]:
+                child = PageModels.objects.filter(lang=lang_id, url=slug, sub=page.id).first()
+                if not child:
+                    return Response({"error": f"Child sahifa topilmadi: {slug}"}, status=status.HTTP_404_NOT_FOUND)
+                page = child
+
+            data['sub'] = page.id  # Yangi child shu parent ostida yaratiladi
+
         serializer = PageSerializer(data=data)
         if serializer.is_valid():
             serializer.save()
@@ -101,21 +116,26 @@ class PageDetailAPIView(APIView):
     @swagger_auto_schema(
         operation_description="Sahifani yangilash",
         request_body=PageSerializer,
-        manual_parameters=[
-            openapi.Parameter('slug', openapi.IN_PATH, description="Sahifa URL yoki slug qiymati",
-                              type=openapi.TYPE_STRING)
-        ],
         responses={200: PageSerializer()}
     )
-    def put(self, request, lang_code, slug):
+    def put(self, request, lang_code, path):
         lang_map = {"uz": 1, "ru": 2, "en": 3}
         lang_id = lang_map.get(lang_code.lower())
         if not lang_id:
             return Response({"error": "Til topilmadi"}, status=status.HTTP_404_NOT_FOUND)
 
-        page = PageModels.objects.filter(lang=lang_id, url__iexact=slug).first()
-        if not page:
-            return Response({"error": "Sahifa topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+        segments = path.strip('/').split('/')
+        parent_url = segments[0]
+        parent = PageModels.objects.filter(lang=lang_id, url=parent_url, sub__isnull=True).first()
+        if not parent:
+            return Response({"error": "Ota sahifa topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+
+        page = parent
+        for slug in segments[1:]:
+            child = PageModels.objects.filter(lang=lang_id, url=slug, sub=page.id).first()
+            if not child:
+                return Response({"error": f"Child sahifa topilmadi: {slug}"}, status=status.HTTP_404_NOT_FOUND)
+            page = child
 
         serializer = PageSerializer(page, data=request.data, partial=True)
         if serializer.is_valid():
@@ -125,21 +145,26 @@ class PageDetailAPIView(APIView):
 
     @swagger_auto_schema(
         operation_description="Sahifani o'chirish",
-        manual_parameters=[
-            openapi.Parameter('slug', openapi.IN_PATH, description="Sahifa URL yoki slug qiymati",
-                              type=openapi.TYPE_STRING)
-        ],
         responses={204: "Deleted successfully"}
     )
-    def delete(self, request, lang_code, slug):
+    def delete(self, request, lang_code, path):
         lang_map = {"uz": 1, "ru": 2, "en": 3}
         lang_id = lang_map.get(lang_code.lower())
         if not lang_id:
             return Response({"error": "Til topilmadi"}, status=status.HTTP_404_NOT_FOUND)
 
-        page = PageModels.objects.filter(lang=lang_id, url__iexact=slug).first()
-        if not page:
-            return Response({"error": "Sahifa topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+        segments = path.strip('/').split('/')
+        parent_url = segments[0]
+        parent = PageModels.objects.filter(lang=lang_id, url=parent_url, sub__isnull=True).first()
+        if not parent:
+            return Response({"error": "Ota sahifa topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+
+        page = parent
+        for slug in segments[1:]:
+            child = PageModels.objects.filter(lang=lang_id, url=slug, sub=page.id).first()
+            if not child:
+                return Response({"error": f"Child sahifa topilmadi: {slug}"}, status=status.HTTP_404_NOT_FOUND)
+            page = child
 
         page.delete()
         return Response({"message": "Deleted successfully"}, status=status.HTTP_204_NO_CONTENT)

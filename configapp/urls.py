@@ -12,6 +12,7 @@ router.register(r'ContentVideo', ContentVideoView)
 urlpatterns = [
     path('', include(router.urls)),
     path('pages/', PageModelsAPIView.as_view()),
-    path('pages/<str:lang_code>/', PageDetailAPIView.as_view()),
-    path('pages/<str:lang_code>/<path:path>/', PageDetailAPIView.as_view()),
+    path('pages/<str:lang_code>/', PageDetailAPIView.as_view(), name='pages-list'),
+    path('pages/<str:lang_code>/<path:path>/', PageDetailAPIView.as_view(), name='pages-detail'),
+
 ]
