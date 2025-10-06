@@ -1,0 +1,9 @@
+venv/
+db.sqlite3
+db.sqlite3.txt
+pycache/
+*.pyc
+.DS_Store
+Thumbs.db
+.idea/
+create_pages.py/
